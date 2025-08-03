@@ -3,6 +3,7 @@ import { db } from '../db';
 import { walletsTable, tokensTable, tokenHoldingsTable } from '../db/schema';
 import { type DashboardData } from '../schema';
 import { eq } from 'drizzle-orm';
+import { getTokenData } from './get_token_data';
 
 export async function getDashboardData(): Promise<DashboardData> {
   try {
@@ -30,53 +31,59 @@ export async function getDashboardData(): Promise<DashboardData> {
       .where(eq(tokenHoldingsTable.wallet_id, activeWallet.id))
       .execute();
 
-    // Calculate total holdings USD value and format holdings
+    // Refresh token prices and calculate total holdings USD value and format holdings
     let totalHoldingsUsd = 0;
-    const tokenHoldings = holdingsWithTokens.map(result => {
-      const holding = result.token_holdings;
-      const token = result.tokens;
+    const tokenHoldings = await Promise.all(
+      holdingsWithTokens.map(async (result) => {
+        const holding = result.token_holdings;
+        const token = result.tokens;
 
-      // Convert numeric fields
-      const quantity = parseFloat(holding.quantity);
-      const purchasePriceSol = parseFloat(holding.purchase_price_sol);
-      const purchasePriceUsd = holding.purchase_price_usd ? parseFloat(holding.purchase_price_usd) : null;
-      const currentTokenPriceUsd = token.price_usd ? parseFloat(token.price_usd) : null;
+        // Refresh token data to get latest price
+        const refreshedToken = await getTokenData({ contract_address: token.contract_address });
 
-      // Calculate current value in USD
-      let currentValueUsd = 0;
-      if (currentTokenPriceUsd) {
-        currentValueUsd = quantity * currentTokenPriceUsd;
-        totalHoldingsUsd += currentValueUsd;
-      }
+        // Convert numeric fields
+        const quantity = parseFloat(holding.quantity);
+        const purchasePriceSol = parseFloat(holding.purchase_price_sol);
+        const purchasePriceUsd = holding.purchase_price_usd ? parseFloat(holding.purchase_price_usd) : null;
+        const currentTokenPriceUsd = refreshedToken.price_usd;
 
-      // Calculate PnL percentage
-      let pnlPercentage = 0;
-      if (purchasePriceUsd && purchasePriceUsd > 0 && currentValueUsd > 0) {
-        pnlPercentage = ((currentValueUsd - purchasePriceUsd) / purchasePriceUsd) * 100;
-      }
+        // Calculate current value in USD
+        let currentValueUsd = 0;
+        if (currentTokenPriceUsd) {
+          currentValueUsd = quantity * currentTokenPriceUsd;
+          totalHoldingsUsd += currentValueUsd;
+        }
 
-      return {
-        id: holding.id,
-        wallet_id: holding.wallet_id,
-        token_id: holding.token_id,
-        quantity,
-        purchase_price_sol: purchasePriceSol,
-        purchase_price_usd: purchasePriceUsd,
-        created_at: holding.created_at,
-        updated_at: holding.updated_at,
-        token: {
-          id: token.id,
-          contract_address: token.contract_address,
-          name: token.name,
-          symbol: token.symbol,
-          decimals: token.decimals,
-          price_usd: currentTokenPriceUsd,
-          created_at: token.created_at
-        },
-        current_value_usd: currentValueUsd,
-        pnl_percentage: pnlPercentage
-      };
-    });
+        // Calculate PnL percentage
+        let pnlPercentage = 0;
+        if (purchasePriceUsd && purchasePriceUsd > 0 && currentValueUsd > 0) {
+          const totalPurchaseValue = quantity * purchasePriceUsd;
+          pnlPercentage = ((currentValueUsd - totalPurchaseValue) / totalPurchaseValue) * 100;
+        }
+
+        return {
+          id: holding.id,
+          wallet_id: holding.wallet_id,
+          token_id: holding.token_id,
+          quantity,
+          purchase_price_sol: purchasePriceSol,
+          purchase_price_usd: purchasePriceUsd,
+          created_at: holding.created_at,
+          updated_at: holding.updated_at,
+          token: {
+            id: refreshedToken.id,
+            contract_address: refreshedToken.contract_address,
+            name: refreshedToken.name,
+            symbol: refreshedToken.symbol,
+            decimals: refreshedToken.decimals,
+            price_usd: refreshedToken.price_usd,
+            created_at: refreshedToken.created_at
+          },
+          current_value_usd: currentValueUsd,
+          pnl_percentage: pnlPercentage
+        };
+      })
+    );
 
     return {
       active_wallet: {

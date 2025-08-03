@@ -3,6 +3,7 @@ import { db } from '../db';
 import { walletsTable, tokensTable, tokenHoldingsTable, transactionsTable } from '../db/schema';
 import { type BuyTokenInput, type Transaction } from '../schema';
 import { eq, and } from 'drizzle-orm';
+import { getTokenData } from './get_token_data';
 
 export async function buyToken(input: BuyTokenInput): Promise<Transaction> {
   try {
@@ -21,34 +22,27 @@ export async function buyToken(input: BuyTokenInput): Promise<Transaction> {
       throw new Error('Insufficient SOL balance');
     }
 
-    // Find or create token
-    let token = await db.select()
-      .from(tokensTable)
-      .where(eq(tokensTable.contract_address, input.contract_address))
-      .execute();
-
-    let tokenId: number;
-    if (token.length === 0) {
-      // Create new token record
-      const newToken = await db.insert(tokensTable)
-        .values({
-          contract_address: input.contract_address,
-          name: null,
-          symbol: null,
-          decimals: 9, // Default Solana token decimals
-          price_usd: null
-        })
-        .returning()
-        .execute();
-      tokenId = newToken[0].id;
-    } else {
-      tokenId = token[0].id;
-    }
+    // Get or create token with fresh data from external APIs
+    const tokenData = await getTokenData({ contract_address: input.contract_address });
+    const tokenId = tokenData.id;
 
     // For demo purposes, simulate token purchase
     // In real implementation, this would interact with Solana DEX
-    const mockTokenQuantity = input.amount_sol * 1000; // Mock exchange rate
-    const pricePerTokenSol = input.amount_sol / mockTokenQuantity;
+    // Use token's current USD price to calculate a more realistic exchange rate
+    let mockTokenQuantity: number;
+    let pricePerTokenSol: number;
+    
+    if (tokenData.price_usd && tokenData.price_usd > 0) {
+      // Assume SOL price is approximately $100 for calculation (in real app, fetch SOL price too)
+      const solPriceUsd = 100;
+      const tokenPriceInSol = tokenData.price_usd / solPriceUsd;
+      mockTokenQuantity = input.amount_sol / tokenPriceInSol;
+      pricePerTokenSol = tokenPriceInSol;
+    } else {
+      // Fallback to mock exchange rate
+      mockTokenQuantity = input.amount_sol * 1000;
+      pricePerTokenSol = input.amount_sol / mockTokenQuantity;
+    }
 
     // Create transaction record
     const transaction = await db.insert(transactionsTable)
@@ -103,7 +97,7 @@ export async function buyToken(input: BuyTokenInput): Promise<Transaction> {
           token_id: tokenId,
           quantity: mockTokenQuantity.toString(),
           purchase_price_sol: pricePerTokenSol.toString(),
-          purchase_price_usd: null
+          purchase_price_usd: tokenData.price_usd ? tokenData.price_usd.toString() : null
         })
         .execute();
     }

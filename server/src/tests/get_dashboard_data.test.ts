@@ -90,7 +90,7 @@ describe('getDashboardData', () => {
     const token1 = tokenResults[0];
     const token2 = tokenResults[1];
 
-    // Create token holdings
+    // Create token holdings with per-token purchase prices
     await db.insert(tokenHoldingsTable)
       .values([
         {
@@ -98,14 +98,14 @@ describe('getDashboardData', () => {
           token_id: token1.id,
           quantity: '100.0',
           purchase_price_sol: '1.0',
-          purchase_price_usd: '200.0'
+          purchase_price_usd: '2.0' // per token price
         },
         {
           wallet_id: wallet.id,
           token_id: token2.id,
           quantity: '50.0',
           purchase_price_sol: '2.0',
-          purchase_price_usd: '400.0'
+          purchase_price_usd: '8.0' // per token price
         }
       ])
       .execute();
@@ -125,9 +125,12 @@ describe('getDashboardData', () => {
     expect(holding1).toBeDefined();
     expect(holding1!.quantity).toEqual(100);
     expect(holding1!.purchase_price_sol).toEqual(1.0);
-    expect(holding1!.purchase_price_usd).toEqual(200.0);
+    expect(holding1!.purchase_price_usd).toEqual(2.0);
     expect(holding1!.current_value_usd).toEqual(250);
-    expect(holding1!.pnl_percentage).toEqual(25); // (250 - 200) / 200 * 100 = 25%
+    // PnL calculation: current_value - total_purchase_value / total_purchase_value * 100
+    // total_purchase_value = quantity * purchase_price_usd = 100 * 2.0 = 200
+    // pnl_percentage = (250 - 200) / 200 * 100 = 25%
+    expect(holding1!.pnl_percentage).toEqual(25);
     expect(holding1!.token.name).toEqual('Test Token 1');
     expect(holding1!.token.price_usd).toEqual(2.50);
 
@@ -135,9 +138,11 @@ describe('getDashboardData', () => {
     const holding2 = result.token_holdings.find(h => h.token.symbol === 'TT2');
     expect(holding2).toBeDefined();
     expect(holding2!.quantity).toEqual(50);
-    expect(holding2!.purchase_price_usd).toEqual(400.0);
+    expect(holding2!.purchase_price_usd).toEqual(8.0);
     expect(holding2!.current_value_usd).toEqual(500);
-    expect(holding2!.pnl_percentage).toEqual(25); // (500 - 400) / 400 * 100 = 25%
+    // total_purchase_value = quantity * purchase_price_usd = 50 * 8.0 = 400
+    // pnl_percentage = (500 - 400) / 400 * 100 = 25%
+    expect(holding2!.pnl_percentage).toEqual(25);
   });
 
   it('should handle tokens without current price', async () => {

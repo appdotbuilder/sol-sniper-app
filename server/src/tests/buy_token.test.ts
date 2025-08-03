@@ -39,8 +39,8 @@ describe('buyToken', () => {
     expect(result.wallet_id).toEqual(1);
     expect(result.type).toEqual('buy');
     expect(result.amount_sol).toEqual(1.0);
-    expect(result.token_quantity).toEqual(1000); // Mock exchange rate
-    expect(result.price_per_token_sol).toEqual(0.001);
+    expect(result.token_quantity).toBeGreaterThan(0);
+    expect(result.price_per_token_sol).toBeGreaterThan(0);
     expect(result.take_profit_percentage).toEqual(50.0);
     expect(result.stop_loss_percentage).toEqual(20.0);
     expect(result.status).toEqual('completed');
@@ -55,7 +55,7 @@ describe('buyToken', () => {
 
     await buyToken(testInput);
 
-    // Verify token was created
+    // Verify token was created with real data fetching
     const tokens = await db.select()
       .from(tokensTable)
       .where(eq(tokensTable.contract_address, testInput.contract_address))
@@ -63,7 +63,15 @@ describe('buyToken', () => {
 
     expect(tokens).toHaveLength(1);
     expect(tokens[0].contract_address).toEqual(testInput.contract_address);
-    expect(tokens[0].decimals).toEqual(9);
+    expect(tokens[0].decimals).toBeGreaterThan(0);
+    
+    // Token might have fetched metadata
+    if (tokens[0].name) {
+      expect(typeof tokens[0].name).toEqual('string');
+    }
+    if (tokens[0].symbol) {
+      expect(typeof tokens[0].symbol).toEqual('string');
+    }
   });
 
   it('should create token holding for new purchase', async () => {
@@ -80,8 +88,13 @@ describe('buyToken', () => {
       .execute();
 
     expect(holdings).toHaveLength(1);
-    expect(parseFloat(holdings[0].quantity)).toEqual(1000);
-    expect(parseFloat(holdings[0].purchase_price_sol)).toEqual(0.001);
+    expect(parseFloat(holdings[0].quantity)).toBeGreaterThan(0);
+    expect(parseFloat(holdings[0].purchase_price_sol)).toBeGreaterThan(0);
+    
+    // Should have USD price if token data was fetched successfully
+    if (holdings[0].purchase_price_usd) {
+      expect(parseFloat(holdings[0].purchase_price_usd)).toBeGreaterThan(0);
+    }
   });
 
   it('should update existing token holding', async () => {
