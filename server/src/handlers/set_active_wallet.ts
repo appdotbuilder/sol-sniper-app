@@ -1,19 +1,34 @@
 
+import { db } from '../db';
+import { walletsTable } from '../db/schema';
 import { type Wallet } from '../schema';
+import { eq } from 'drizzle-orm';
 
 export async function setActiveWallet(walletId: number): Promise<Wallet> {
-  // This is a placeholder declaration! Real code should be implemented here.
-  // The goal of this handler is to set a wallet as active:
-  // - Set all other wallets to inactive
-  // - Set specified wallet as active
-  // - Return updated wallet data
-  return {
-    id: walletId,
-    name: '',
-    address: '',
-    private_key: '',
-    sol_balance: 0,
-    is_active: true,
-    created_at: new Date()
-  };
+  try {
+    // First, set all wallets to inactive
+    await db.update(walletsTable)
+      .set({ is_active: false })
+      .execute();
+
+    // Then, set the specified wallet as active
+    const result = await db.update(walletsTable)
+      .set({ is_active: true })
+      .where(eq(walletsTable.id, walletId))
+      .returning()
+      .execute();
+
+    if (result.length === 0) {
+      throw new Error(`Wallet with id ${walletId} not found`);
+    }
+
+    const wallet = result[0];
+    return {
+      ...wallet,
+      sol_balance: parseFloat(wallet.sol_balance) // Convert numeric to number
+    };
+  } catch (error) {
+    console.error('Set active wallet failed:', error);
+    throw error;
+  }
 }
